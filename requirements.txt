@@ -1,8 +1,8 @@
-flask==2.3.3
-flask-cors==4.0.0
-numpy==1.24.3
-pandas==2.0.3
-requests==2.31.0
-gunicorn==21.2.0
-yfinance==0.2.33
-scipy==1.10.1
+flask
+flask-cors
+numpy
+pandas
+requests
+gunicorn
+yfinance
+scipy
