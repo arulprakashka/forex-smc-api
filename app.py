@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
@@ -12,7 +13,31 @@ import time
 import yfinance as yf
 import pandas as pd
 
+# ============================================
+# CUSTOM JSON ENCODER (FIX FOR bool ERROR)
+# ============================================
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        elif isinstance(obj, pd.Series):
+            return obj.tolist()
+        elif isinstance(obj, pd.DataFrame):
+            return obj.to_dict('records')
+        return super().default(obj)
+
 app = Flask(__name__)
+app.json_encoder = CustomJSONEncoder
 CORS(app)
 
 # ============================================
@@ -20,6 +45,35 @@ CORS(app)
 # ============================================
 TWELVE_DATA_KEY = "e4987fc0c8f0461db5877035bc089d64"  # Optional backup
 FCS_API_KEY = "wAWpiqowXld2Bv5bl0jD4kw"              # Optional backup
+
+# ============================================
+# HELPER FUNCTION TO CONVERT NUMPY TYPES
+# ============================================
+def convert_numpy(obj):
+    """Convert numpy types to Python native types"""
+    if isinstance(obj, dict):
+        return {k: convert_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy(i) for i in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy(i) for i in obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, pd.Series):
+        return obj.tolist()
+    elif isinstance(obj, pd.DataFrame):
+        return obj.to_dict('records')
+    return obj
 
 # ============================================
 # YAHOO FINANCE DATA FETCHING (PRIMARY)
@@ -66,31 +120,31 @@ def fetch_from_yahoo(symbol="GC=F", interval="1h", days=30):
             for i in range(0, len(data)-3, 4):
                 chunk = data.iloc[i:i+4]
                 aggregated.append({
-                    'open': chunk['Open'].iloc[0],
-                    'high': chunk['High'].max(),
-                    'low': chunk['Low'].min(),
-                    'close': chunk['Close'].iloc[-1],
-                    'volume': chunk['Volume'].sum(),
-                    'time': chunk.index[-1]
+                    'open': float(chunk['Open'].iloc[0]),
+                    'high': float(chunk['High'].max()),
+                    'low': float(chunk['Low'].min()),
+                    'close': float(chunk['Close'].iloc[-1]),
+                    'volume': int(chunk['Volume'].sum()),
+                    'time': str(chunk.index[-1])
                 })
             
             return {
-                'prices': [c['close'] for c in aggregated],
-                'high': [c['high'] for c in aggregated],
-                'low': [c['low'] for c in aggregated],
-                'open': [c['open'] for c in aggregated],
-                'volume': [c['volume'] for c in aggregated],
-                'time': [str(c['time']) for c in aggregated],
+                'prices': [float(c['close']) for c in aggregated],
+                'high': [float(c['high']) for c in aggregated],
+                'low': [float(c['low']) for c in aggregated],
+                'open': [float(c['open']) for c in aggregated],
+                'volume': [int(c['volume']) for c in aggregated],
+                'time': [c['time'] for c in aggregated],
                 'source': 'yahoo'
             }
         
         # Normal data
         return {
-            'prices': data['Close'].tolist(),
-            'high': data['High'].tolist(),
-            'low': data['Low'].tolist(),
-            'open': data['Open'].tolist(),
-            'volume': data['Volume'].tolist(),
+            'prices': [float(x) for x in data['Close'].tolist()],
+            'high': [float(x) for x in data['High'].tolist()],
+            'low': [float(x) for x in data['Low'].tolist()],
+            'open': [float(x) for x in data['Open'].tolist()],
+            'volume': [int(x) for x in data['Volume'].tolist()],
             'time': data.index.strftime('%Y-%m-%d %H:%M').tolist(),
             'source': 'yahoo'
         }
@@ -104,7 +158,7 @@ def fetch_from_yahoo(symbol="GC=F", interval="1h", days=30):
 
 def fetch_from_twelvedata(symbol="XAU/USD", interval="1h"):
     """Backup data source - Twelve Data"""
-    if TWELVE_DATA_KEY == "YOUR_TWELVE_DATA_API_KEY":
+    if TWELVE_DATA_KEY == "e4987fc0c8f0461db5877035bc089d64":
         return None
         
     url = f"https://api.twelvedata.com/time_series"
@@ -141,7 +195,12 @@ def get_mtf_data(symbol="XAU/USD"):
     """Get multi-timeframe data (Primary: Yahoo, Backup: Twelve Data)"""
     
     # Map symbol to Yahoo format
-    yahoo_symbol = "GC=F" if symbol == "XAU/USD" else symbol.replace('/', '') + "=X"
+    if symbol == "XAU/USD":
+        yahoo_symbol = "GC=F"
+    elif symbol.endswith("=X"):
+        yahoo_symbol = symbol
+    else:
+        yahoo_symbol = symbol.replace('/', '') + "=X"
     
     timeframes = [
         '1m', '5m', '15m', '30m', '1h', '4h', '1d', '1wk'
@@ -179,13 +238,13 @@ def generate_simulated_data(count):
     volumes = []
     
     for i in range(count):
-        change = np.random.normal(0, 3)
+        change = float(np.random.normal(0, 3))
         price = base + change
-        prices.append(price)
-        opens.append(base)
-        highs.append(price + abs(np.random.normal(0, 2)))
-        lows.append(price - abs(np.random.normal(0, 2)))
-        volumes.append(np.random.randint(1000, 10000))
+        prices.append(float(price))
+        opens.append(float(base))
+        highs.append(float(price + abs(float(np.random.normal(0, 2)))))
+        lows.append(float(price - abs(float(np.random.normal(0, 2)))))
+        volumes.append(int(np.random.randint(1000, 10000)))
         base = price
     
     return {
@@ -208,18 +267,18 @@ def detect_fvgs(high, low, close):
     for i in range(2, len(high)-1):
         if low[i-1] > high[i-2] and low[i] > high[i-1]:
             fvgs['bullish'].append({
-                'level': round((high[i-2] + low[i-1]) / 2, 2),
-                'top': round(high[i-2], 2),
-                'bottom': round(low[i-1], 2),
-                'index': i
+                'level': float(round((high[i-2] + low[i-1]) / 2, 2)),
+                'top': float(round(high[i-2], 2)),
+                'bottom': float(round(low[i-1], 2)),
+                'index': int(i)
             })
         
         if high[i-1] < low[i-2] and high[i] < low[i-1]:
             fvgs['bearish'].append({
-                'level': round((low[i-2] + high[i-1]) / 2, 2),
-                'top': round(low[i-2], 2),
-                'bottom': round(high[i-1], 2),
-                'index': i
+                'level': float(round((low[i-2] + high[i-1]) / 2, 2)),
+                'top': float(round(low[i-2], 2)),
+                'bottom': float(round(high[i-1], 2)),
+                'index': int(i)
             })
     
     return fvgs
@@ -229,20 +288,20 @@ def detect_order_blocks(high, low, close, volume):
     obs = {'bullish': [], 'bearish': []}
     
     for i in range(5, len(close)-5):
-        future_move = abs(close[i+3] - close[i])
-        past_volatility = np.std(close[i-10:i]) if i >= 10 else 0.01
+        future_move = float(abs(close[i+3] - close[i]))
+        past_volatility = float(np.std(close[i-10:i])) if i >= 10 else 0.01
         
         if future_move > past_volatility * 2:
             direction = 'bullish' if close[i+3] > close[i] else 'bearish'
-            vol_confirmed = volume[i] > np.mean(volume[i-10:i]) * 1.3 if i >= 10 else False
+            vol_confirmed = bool(volume[i] > np.mean(volume[i-10:i]) * 1.3) if i >= 10 else False
             
             ob = {
-                'price': round(close[i], 2),
-                'high': round(high[i], 2),
-                'low': round(low[i], 2),
-                'volume': round(volume[i], 2),
-                'confirmed': vol_confirmed,
-                'index': i
+                'price': float(round(close[i], 2)),
+                'high': float(round(high[i], 2)),
+                'low': float(round(low[i], 2)),
+                'volume': float(round(volume[i], 2)),
+                'confirmed': bool(vol_confirmed),
+                'index': int(i)
             }
             
             if direction == 'bullish':
@@ -260,26 +319,26 @@ def detect_liquidity(high, low):
         if high[i] > high[i-1] and high[i] > high[i-2] and \
            high[i] > high[i+1] and high[i] > high[i+2]:
             liquidity['buyside'].append({
-                'price': round(high[i], 2),
-                'index': i,
+                'price': float(round(high[i], 2)),
+                'index': int(i),
                 'type': 'SWING_HIGH'
             })
         
         if low[i] < low[i-1] and low[i] < low[i-2] and \
            low[i] < low[i+1] and low[i] < low[i+2]:
             liquidity['sellside'].append({
-                'price': round(low[i], 2),
-                'index': i,
+                'price': float(round(low[i], 2)),
+                'index': int(i),
                 'type': 'SWING_LOW'
             })
         
         if i > 5:
-            range_high = max(high[i-5:i])
-            range_low = min(low[i-5:i])
-            mid = (range_high + range_low) / 2
+            range_high = float(max(high[i-5:i]))
+            range_low = float(min(low[i-5:i]))
+            mid = float((range_high + range_low) / 2)
             liquidity['internal'].append({
-                'price': round(mid, 2),
-                'index': i,
+                'price': float(round(mid, 2)),
+                'index': int(i),
                 'type': 'EQUALIBRIUM'
             })
     
@@ -295,36 +354,36 @@ def detect_market_structure(high, low, close):
     for i in range(2, len(high)-2):
         if high[i] > high[i-1] and high[i] > high[i-2] and \
            high[i] > high[i+1] and high[i] > high[i+2]:
-            swing_highs.append({'price': high[i], 'index': i})
+            swing_highs.append({'price': float(high[i]), 'index': int(i)})
         
         if low[i] < low[i-1] and low[i] < low[i-2] and \
            low[i] < low[i+1] and low[i] < low[i+2]:
-            swing_lows.append({'price': low[i], 'index': i})
+            swing_lows.append({'price': float(low[i]), 'index': int(i)})
     
     for i in range(1, len(swing_highs)):
         if swing_highs[i]['price'] > swing_highs[i-1]['price']:
             structure['bos'].append({
                 'type': 'BULLISH_BOS',
-                'level': round(swing_highs[i]['price'], 2),
-                'index': swing_highs[i]['index']
+                'level': float(round(swing_highs[i]['price'], 2)),
+                'index': int(swing_highs[i]['index'])
             })
             structure['mss'].append({
                 'type': 'BULLISH_MSS',
-                'level': round(swing_highs[i]['price'], 2),
-                'index': swing_highs[i]['index']
+                'level': float(round(swing_highs[i]['price'], 2)),
+                'index': int(swing_highs[i]['index'])
             })
     
     for i in range(1, len(swing_lows)):
         if swing_lows[i]['price'] < swing_lows[i-1]['price']:
             structure['bos'].append({
                 'type': 'BEARISH_BOS',
-                'level': round(swing_lows[i]['price'], 2),
-                'index': swing_lows[i]['index']
+                'level': float(round(swing_lows[i]['price'], 2)),
+                'index': int(swing_lows[i]['index'])
             })
             structure['mss'].append({
                 'type': 'BEARISH_MSS',
-                'level': round(swing_lows[i]['price'], 2),
-                'index': swing_lows[i]['index']
+                'level': float(round(swing_lows[i]['price'], 2)),
+                'index': int(swing_lows[i]['index'])
             })
     
     return structure
@@ -334,17 +393,17 @@ def detect_breaker_blocks(high, low, close):
     breakers = {'bullish': [], 'bearish': []}
     
     for i in range(10, len(close)-10):
-        prev_high = max(high[i-10:i])
-        prev_low = min(low[i-10:i])
+        prev_high = float(max(high[i-10:i]))
+        prev_low = float(min(low[i-10:i]))
         
         if close[i] > prev_high:
             for j in range(i+1, min(i+15, len(close))):
                 if prev_high >= close[j] >= prev_high * 0.99:
                     breakers['bullish'].append({
-                        'entry': round(prev_high, 2),
-                        'stop': round(prev_low, 2),
-                        'target': round(high[i] * 1.02, 2),
-                        'index': j
+                        'entry': float(round(prev_high, 2)),
+                        'stop': float(round(prev_low, 2)),
+                        'target': float(round(high[i] * 1.02, 2)),
+                        'index': int(j)
                     })
                     break
         
@@ -352,10 +411,10 @@ def detect_breaker_blocks(high, low, close):
             for j in range(i+1, min(i+15, len(close))):
                 if prev_low <= close[j] <= prev_low * 1.01:
                     breakers['bearish'].append({
-                        'entry': round(prev_low, 2),
-                        'stop': round(prev_high, 2),
-                        'target': round(low[i] * 0.98, 2),
-                        'index': j
+                        'entry': float(round(prev_low, 2)),
+                        'stop': float(round(prev_high, 2)),
+                        'target': float(round(low[i] * 0.98, 2)),
+                        'index': int(j)
                     })
                     break
     
@@ -368,16 +427,16 @@ def detect_inducement(high, low, close):
     for i in range(5, len(close)-5):
         if low[i] < min(low[i-5:i]) and close[i+1] > low[i]:
             inducements['bullish'].append({
-                'level': round(low[i], 2),
-                'index': i,
-                'target': round(high[i] * 1.02, 2)
+                'level': float(round(low[i], 2)),
+                'index': int(i),
+                'target': float(round(high[i] * 1.02, 2))
             })
         
         if high[i] > max(high[i-5:i]) and close[i+1] < high[i]:
             inducements['bearish'].append({
-                'level': round(high[i], 2),
-                'index': i,
-                'target': round(low[i] * 0.98, 2)
+                'level': float(round(high[i], 2)),
+                'index': int(i),
+                'target': float(round(low[i] * 0.98, 2))
             })
     
     return inducements
@@ -387,14 +446,14 @@ def detect_equilibrium(high, low, close):
     eq_zones = []
     
     for i in range(20, len(close)):
-        vwap = np.mean(close[i-20:i])
-        std = np.std(close[i-20:i])
+        vwap = float(np.mean(close[i-20:i]))
+        std = float(np.std(close[i-20:i]))
         
         eq_zones.append({
-            'mean': round(vwap, 2),
-            'upper': round(vwap + std, 2),
-            'lower': round(vwap - std, 2),
-            'index': i
+            'mean': float(round(vwap, 2)),
+            'upper': float(round(vwap + std, 2)),
+            'lower': float(round(vwap - std, 2)),
+            'index': int(i)
         })
     
     return eq_zones[-5:] if eq_zones else []
@@ -404,28 +463,28 @@ def detect_ote(high, low):
     ote = {'long': [], 'short': []}
     
     for i in range(30, len(high)):
-        swing_high = max(high[i-30:i])
-        swing_low = min(low[i-30:i])
+        swing_high = float(max(high[i-30:i]))
+        swing_low = float(min(low[i-30:i]))
         
         if swing_high > swing_low:
-            range_size = swing_high - swing_low
-            ote_long_low = swing_high - (range_size * 0.70)
-            ote_long_high = swing_high - (range_size * 0.62)
-            ote_short_low = swing_low + (range_size * 0.62)
-            ote_short_high = swing_low + (range_size * 0.70)
+            range_size = float(swing_high - swing_low)
+            ote_long_low = float(swing_high - (range_size * 0.70))
+            ote_long_high = float(swing_high - (range_size * 0.62))
+            ote_short_low = float(swing_low + (range_size * 0.62))
+            ote_short_high = float(swing_low + (range_size * 0.70))
             
             ote['long'].append({
-                'entry_min': round(ote_long_low, 2),
-                'entry_max': round(ote_long_high, 2),
-                'stop': round(swing_low, 2),
-                'target': round(swing_high, 2)
+                'entry_min': float(round(ote_long_low, 2)),
+                'entry_max': float(round(ote_long_high, 2)),
+                'stop': float(round(swing_low, 2)),
+                'target': float(round(swing_high, 2))
             })
             
             ote['short'].append({
-                'entry_min': round(ote_short_low, 2),
-                'entry_max': round(ote_short_high, 2),
-                'stop': round(swing_high, 2),
-                'target': round(swing_low, 2)
+                'entry_min': float(round(ote_short_low, 2)),
+                'entry_max': float(round(ote_short_high, 2)),
+                'stop': float(round(swing_high, 2)),
+                'target': float(round(swing_low, 2))
             })
     
     return ote
@@ -439,17 +498,20 @@ def detect_silver_bullet(times, high, low):
             time_str = times[i] if i < len(times) else ""
             hour = 0
             if isinstance(time_str, str) and ':' in time_str:
-                hour = int(time_str.split()[1].split(':')[0]) if ' ' in time_str else i % 24
+                if ' ' in time_str:
+                    hour = int(time_str.split()[1].split(':')[0])
+                else:
+                    hour = int(time_str.split(':')[0])
             else:
                 hour = i % 24
             
             if 10 <= hour <= 11:
-                zone_high = max(high[i:i+5])
-                zone_low = min(low[i:i+5])
+                zone_high = float(max(high[i:i+5]))
+                zone_low = float(min(low[i:i+5]))
                 silver.append({
-                    'time': time_str,
-                    'high': round(zone_high, 2),
-                    'low': round(zone_low, 2)
+                    'time': str(time_str),
+                    'high': float(round(zone_high, 2)),
+                    'low': float(round(zone_low, 2))
                 })
         except:
             pass
@@ -465,18 +527,21 @@ def detect_kill_zones(times):
             time_str = ts if isinstance(ts, str) else ""
             hour = 0
             if isinstance(time_str, str) and ':' in time_str:
-                hour = int(time_str.split()[1].split(':')[0]) if ' ' in time_str else i % 24
+                if ' ' in time_str:
+                    hour = int(time_str.split()[1].split(':')[0])
+                else:
+                    hour = int(time_str.split(':')[0])
             else:
                 hour = i % 24
             
             if 2 <= hour <= 5:
-                zones.append({'zone': 'LONDON_OPEN', 'time': ts, 'index': i})
+                zones.append({'zone': 'LONDON_OPEN', 'time': str(ts), 'index': int(i)})
             elif 7 <= hour <= 10:
-                zones.append({'zone': 'NY_OPEN', 'time': ts, 'index': i})
+                zones.append({'zone': 'NY_OPEN', 'time': str(ts), 'index': int(i)})
             elif 11 <= hour <= 12:
-                zones.append({'zone': 'LONDON_CLOSE', 'time': ts, 'index': i})
+                zones.append({'zone': 'LONDON_CLOSE', 'time': str(ts), 'index': int(i)})
             elif 19 <= hour <= 22:
-                zones.append({'zone': 'ASIA_SESSION', 'time': ts, 'index': i})
+                zones.append({'zone': 'ASIA_SESSION', 'time': str(ts), 'index': int(i)})
         except:
             pass
     
@@ -487,17 +552,17 @@ def detect_power_of_3(high, low, close):
     power3 = []
     
     for i in range(50, len(close)-30):
-        pre_range = max(high[i-20:i]) - min(low[i-20:i])
-        mid_range = max(high[i:i+15]) - min(low[i:i+15])
-        post_range = max(high[i+15:i+30]) - min(low[i+15:i+30])
+        pre_range = float(max(high[i-20:i]) - min(low[i-20:i]))
+        mid_range = float(max(high[i:i+15]) - min(low[i:i+15]))
+        post_range = float(max(high[i+15:i+30]) - min(low[i+15:i+30]))
         
         if mid_range < pre_range * 0.4 and post_range > pre_range * 1.6:
             direction = 'UP' if close[i+25] > close[i-15] else 'DOWN'
             power3.append({
                 'type': 'POWER_OF_3',
-                'accumulation': i-20,
-                'manipulation': i,
-                'distribution': i+15,
+                'accumulation': int(i-20),
+                'manipulation': int(i),
+                'distribution': int(i+15),
                 'direction': direction
             })
     
@@ -508,25 +573,25 @@ def detect_judas_swing(high, low, close):
     judas = []
     
     for i in range(20, len(close)-10):
-        recent_high = max(high[i-10:i])
-        recent_low = min(low[i-10:i])
+        recent_high = float(max(high[i-10:i]))
+        recent_low = float(min(low[i-10:i]))
         
         if high[i] > recent_high * 1.005 and close[i+1] < high[i]:
             judas.append({
                 'type': 'JUDAS_SHORT',
-                'entry': round(high[i], 2),
-                'stop': round(high[i] * 1.005, 2),
-                'target': round(recent_low, 2),
-                'index': i
+                'entry': float(round(high[i], 2)),
+                'stop': float(round(high[i] * 1.005, 2)),
+                'target': float(round(recent_low, 2)),
+                'index': int(i)
             })
         
         if low[i] < recent_low * 0.995 and close[i+1] > low[i]:
             judas.append({
                 'type': 'JUDAS_LONG',
-                'entry': round(low[i], 2),
-                'stop': round(low[i] * 0.995, 2),
-                'target': round(recent_high, 2),
-                'index': i
+                'entry': float(round(low[i], 2)),
+                'stop': float(round(low[i] * 0.995, 2)),
+                'target': float(round(recent_high, 2)),
+                'index': int(i)
             })
     
     return judas[-5:] if judas else []
@@ -536,25 +601,25 @@ def detect_turtle_soup(high, low, close):
     soup = []
     
     for i in range(20, len(close)-5):
-        period_high = max(high[i-20:i])
-        period_low = min(low[i-20:i])
+        period_high = float(max(high[i-20:i]))
+        period_low = float(min(low[i-20:i]))
         
         if close[i] > period_high and close[i+1] < period_high:
             soup.append({
                 'type': 'TURTLE_SOUP_SHORT',
-                'entry': round(period_high, 2),
-                'stop': round(period_high * 1.01, 2),
-                'target': round(period_low, 2),
-                'index': i
+                'entry': float(round(period_high, 2)),
+                'stop': float(round(period_high * 1.01, 2)),
+                'target': float(round(period_low, 2)),
+                'index': int(i)
             })
         
         if close[i] < period_low and close[i+1] > period_low:
             soup.append({
                 'type': 'TURTLE_SOUP_LONG',
-                'entry': round(period_low, 2),
-                'stop': round(period_low * 0.99, 2),
-                'target': round(period_high, 2),
-                'index': i
+                'entry': float(round(period_low, 2)),
+                'stop': float(round(period_low * 0.99, 2)),
+                'target': float(round(period_high, 2)),
+                'index': int(i)
             })
     
     return soup[-5:] if soup else []
@@ -564,35 +629,35 @@ def detect_wyckoff(high, low, close, volume):
     wyckoff = {'phases': [], 'springs': [], 'upthrusts': []}
     
     for i in range(50, len(close)):
-        if volume[i] > np.mean(volume[i-20:i]) * 2.5:
+        if volume[i] > float(np.mean(volume[i-20:i]) * 2.5):
             wyckoff['phases'].append({
                 'phase': 'A_CLIMAX',
                 'type': 'SELLING' if close[i] < close[i-1] else 'BUYING',
-                'price': round(close[i], 2),
-                'index': i
+                'price': float(round(close[i], 2)),
+                'index': int(i)
             })
         
-        range_width = max(high[i-30:i]) - min(low[i-30:i])
-        avg_range = np.mean([max(high[j-10:j]) - min(low[j-10:j]) for j in range(i-30, i)]) if i >= 30 else 0
+        range_width = float(max(high[i-30:i]) - min(low[i-30:i]))
+        avg_range = float(np.mean([max(high[j-10:j]) - min(low[j-10:j]) for j in range(i-30, i)])) if i >= 30 else 0
         
         if range_width < avg_range * 0.6 and avg_range > 0:
             wyckoff['phases'].append({
                 'phase': 'B_CAUSE',
-                'high': round(max(high[i-30:i]), 2),
-                'low': round(min(low[i-30:i]), 2),
-                'index': i
+                'high': float(round(max(high[i-30:i]), 2)),
+                'low': float(round(min(low[i-30:i]), 2)),
+                'index': int(i)
             })
         
         if low[i] < min(low[i-10:i-5]) and close[i] > low[i]:
             wyckoff['springs'].append({
-                'price': round(low[i], 2),
-                'index': i
+                'price': float(round(low[i], 2)),
+                'index': int(i)
             })
         
         if high[i] > max(high[i-10:i-5]) and close[i] < high[i]:
             wyckoff['upthrusts'].append({
-                'price': round(high[i], 2),
-                'index': i
+                'price': float(round(high[i], 2)),
+                'index': int(i)
             })
     
     return wyckoff
@@ -602,21 +667,21 @@ def detect_vsa(high, low, close, volume):
     vsa = []
     
     for i in range(1, len(close)):
-        spread = high[i] - low[i]
-        avg_spread = np.mean([high[j] - low[j] for j in range(max(0, i-10), i)]) if i >= 10 else spread
-        avg_volume = np.mean(volume[max(0, i-10):i]) if i >= 10 else volume[i]
+        spread = float(high[i] - low[i])
+        avg_spread = float(np.mean([high[j] - low[j] for j in range(max(0, i-10), i)])) if i >= 10 else spread
+        avg_volume = float(np.mean(volume[max(0, i-10):i])) if i >= 10 else volume[i]
         
         if spread > avg_spread * 1.8 and volume[i] > avg_volume * 1.8:
             vsa.append({
                 'type': 'STRONG_MOVE',
                 'direction': 'UP' if close[i] > close[i-1] else 'DOWN',
-                'index': i
+                'index': int(i)
             })
         
         if spread < avg_spread * 0.5 and volume[i] > avg_volume * 1.5:
             vsa.append({
                 'type': 'ABSORPTION',
-                'index': i
+                'index': int(i)
             })
     
     return vsa[-10:] if vsa else []
@@ -630,20 +695,20 @@ def detect_smart_money_reversal(high, low, close, volume):
            volume[i] > volume[i-1] * 1.4:
             reversals.append({
                 'type': 'SMR_BULLISH',
-                'entry': round(low[i-1], 2),
-                'stop': round(low[i-2], 2),
-                'target': round(high[i] * 1.02, 2),
-                'index': i
+                'entry': float(round(low[i-1], 2)),
+                'stop': float(round(low[i-2], 2)),
+                'target': float(round(high[i] * 1.02, 2)),
+                'index': int(i)
             })
         
         if close[i] < close[i-1] and close[i-1] > close[i-2] and \
            volume[i] > volume[i-1] * 1.4:
             reversals.append({
                 'type': 'SMR_BEARISH',
-                'entry': round(high[i-1], 2),
-                'stop': round(high[i-2], 2),
-                'target': round(low[i] * 0.98, 2),
-                'index': i
+                'entry': float(round(high[i-1], 2)),
+                'stop': float(round(high[i-2], 2)),
+                'target': float(round(low[i] * 0.98, 2)),
+                'index': int(i)
             })
     
     return reversals[-5:] if reversals else []
@@ -653,16 +718,16 @@ def detect_order_flow(high, low, close, volume):
     flow = []
     
     for i in range(20, len(close)):
-        delta = close[i] - (high[i] + low[i])/2
-        cumulative_delta = np.sum([close[j] - (high[j] + low[j])/2 for j in range(i-20, i)]) if i >= 20 else delta
+        delta = float(close[i] - (high[i] + low[i])/2)
+        cumulative_delta = float(np.sum([close[j] - (high[j] + low[j])/2 for j in range(i-20, i)])) if i >= 20 else delta
         
-        if abs(delta) > np.std([close[j] - (high[j] + low[j])/2 for j in range(i-20, i)]) * 2:
+        if abs(delta) > float(np.std([close[j] - (high[j] + low[j])/2 for j in range(i-20, i)])) * 2:
             direction = 'BUYING' if delta > 0 else 'SELLING'
             flow.append({
                 'type': f'INSTITUTIONAL_{direction}',
-                'delta': round(delta, 2),
-                'cumulative_delta': round(cumulative_delta, 2),
-                'index': i
+                'delta': float(round(delta, 2)),
+                'cumulative_delta': float(round(cumulative_delta, 2)),
+                'index': int(i)
             })
     
     return flow[-10:] if flow else []
@@ -672,11 +737,11 @@ def analyze_volume_profile(volume, price):
     vol_profile = []
     
     for i in range(len(volume)-20):
-        vol_cluster = np.sum(volume[i:i+20])
-        price_cluster = np.mean(price[i:i+20])
+        vol_cluster = float(np.sum(volume[i:i+20]))
+        price_cluster = float(np.mean(price[i:i+20]))
         vol_profile.append({
-            'price': round(price_cluster, 2),
-            'volume': round(vol_cluster, 2)
+            'price': float(round(price_cluster, 2)),
+            'volume': float(round(vol_cluster, 2))
         })
     
     return vol_profile[-5:] if vol_profile else []
@@ -691,14 +756,14 @@ def backtest_strategy(high, low, close, volume, days=30):
         'trades': 0,
         'wins': 0,
         'losses': 0,
-        'win_rate': 0,
-        'profit_factor': 0,
-        'total_profit': 0,
-        'max_drawdown': 0
+        'win_rate': 0.0,
+        'profit_factor': 0.0,
+        'total_profit': 0.0,
+        'max_drawdown': 0.0
     }
     
     profits = []
-    equity_curve = [1000]
+    equity_curve = [1000.0]
     
     for i in range(100, len(close)-50, 10):
         fvgs = detect_fvgs(high[i-100:i], low[i-100:i], close[i-100:i])
@@ -712,7 +777,7 @@ def backtest_strategy(high, low, close, volume, days=30):
         
         if signal:
             results['trades'] += 1
-            entry = close[i]
+            entry = float(close[i])
             target = entry * 1.01 if signal == 'BUY' else entry * 0.99
             stop = entry * 0.99 if signal == 'BUY' else entry * 1.01
             
@@ -733,22 +798,22 @@ def backtest_strategy(high, low, close, volume, days=30):
                     break
     
     if results['trades'] > 0:
-        results['win_rate'] = round((results['wins'] / results['trades']) * 100, 2)
+        results['win_rate'] = float(round((results['wins'] / results['trades']) * 100, 2))
         if len(profits) > 0:
-            wins_sum = sum([p for p in profits if p > 0])
-            losses_sum = abs(sum([p for p in profits if p < 0]))
-            results['profit_factor'] = round(wins_sum / losses_sum if losses_sum > 0 else wins_sum, 2)
-            results['total_profit'] = round(((equity_curve[-1] / equity_curve[0]) - 1) * 100, 2)
+            wins_sum = float(sum([p for p in profits if p > 0]))
+            losses_sum = float(abs(sum([p for p in profits if p < 0])))
+            results['profit_factor'] = float(round(wins_sum / losses_sum if losses_sum > 0 else wins_sum, 2))
+            results['total_profit'] = float(round(((equity_curve[-1] / equity_curve[0]) - 1) * 100, 2))
             
             peak = equity_curve[0]
-            max_dd = 0
+            max_dd = 0.0
             for value in equity_curve:
                 if value > peak:
                     peak = value
                 dd = (peak - value) / peak * 100
                 if dd > max_dd:
                     max_dd = dd
-            results['max_drawdown'] = round(max_dd, 2)
+            results['max_drawdown'] = float(round(max_dd, 2))
     
     return results
 
@@ -759,11 +824,11 @@ def backtest_strategy(high, low, close, volume, days=30):
 def calculate_confluence(mtf_analysis):
     """Calculate confluence across timeframes"""
     scores = {}
-    total_score = 0
+    total_score = 0.0
     tf_count = 0
     
     for tf, analysis in mtf_analysis.items():
-        score = 0
+        score = 0.0
         signals = []
         
         fvgs = analysis.get('fvgs', {})
@@ -786,13 +851,13 @@ def calculate_confluence(mtf_analysis):
             signals.append('MSS')
         
         scores[tf] = {
-            'score': min(score, 100),
+            'score': float(min(score, 100)),
             'signals': signals
         }
-        total_score += min(score, 100)
+        total_score += float(min(score, 100))
         tf_count += 1
     
-    overall = total_score / tf_count if tf_count > 0 else 0
+    overall = float(total_score / tf_count) if tf_count > 0 else 0.0
     
     bullish_count = 0
     bearish_count = 0
@@ -811,7 +876,7 @@ def calculate_confluence(mtf_analysis):
     
     return {
         'per_timeframe': scores,
-        'overall': round(overall, 2),
+        'overall': float(round(overall, 2)),
         'bias': bias,
         'strength': 'STRONG' if overall >= 70 else 'MODERATE' if overall >= 40 else 'WEAK'
     }
@@ -825,11 +890,11 @@ def analyze_all_patterns(data_dict):
     if not data_dict or len(data_dict.get('prices', [])) < 50:
         return {'error': 'Insufficient data'}
     
-    prices = data_dict['prices']
-    highs = data_dict['high']
-    lows = data_dict['low']
-    opens = data_dict.get('open', prices)
-    volumes = data_dict.get('volume', [1000] * len(prices))
+    prices = [float(x) for x in data_dict['prices']]
+    highs = [float(x) for x in data_dict['high']]
+    lows = [float(x) for x in data_dict['low']]
+    opens = [float(x) for x in data_dict.get('open', prices)]
+    volumes = [float(x) for x in data_dict.get('volume', [1000] * len(prices))]
     times = data_dict.get('time', [f"2026-01-01 {i%24:02d}:{i%60:02d}" for i in range(len(prices))])
     
     return {
@@ -851,7 +916,7 @@ def analyze_all_patterns(data_dict):
         'smart_money_reversal': detect_smart_money_reversal(highs, lows, prices, volumes),
         'order_flow': detect_order_flow(highs, lows, prices, volumes),
         'volume_profile': analyze_volume_profile(volumes, prices),
-        'last_price': round(prices[-1], 2) if prices else 0,
+        'last_price': float(round(prices[-1], 2)) if prices else 0.0,
         'timestamp': str(datetime.now())
     }
 
@@ -861,7 +926,7 @@ def analyze_all_patterns(data_dict):
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({
+    return convert_numpy(jsonify({
         'status': 'FOREX SMC/ICT PRO API',
         'version': '3.0',
         'features': [
@@ -885,7 +950,7 @@ def home():
             '/backtest': 'POST - Run backtest',
             '/health': 'GET - Health check'
         }
-    })
+    }))
 
 @app.route('/analyze/pro', methods=['POST'])
 def analyze_pro():
@@ -910,9 +975,9 @@ def analyze_pro():
                 h1_data['prices'], h1_data['volume'], 30
             )
         
-        final_score = confluence['overall']
+        final_score = float(confluence['overall'])
         if backtest.get('win_rate', 0) > 60:
-            final_score = min(100, final_score + 10)
+            final_score = float(min(100, final_score + 10))
         
         signal = 'STRONG_BUY' if final_score >= 75 and confluence['bias'] == 'BULLISH' else \
                 'BUY' if final_score >= 55 and confluence['bias'] == 'BULLISH' else \
@@ -920,36 +985,38 @@ def analyze_pro():
                 'SELL' if final_score >= 20 and confluence['bias'] == 'BEARISH' else \
                 'STRONG_SELL' if final_score < 20 and confluence['bias'] == 'BEARISH' else 'NEUTRAL'
         
-        entry_price = mtf_analysis.get('1h', {}).get('last_price', 0)
+        entry_price = float(mtf_analysis.get('1h', {}).get('last_price', 0))
         entry = {
-            'price': entry_price,
-            'stop_loss': round(entry_price * 0.995, 2) if 'BUY' in signal else round(entry_price * 1.005, 2),
-            'take_profit_1': round(entry_price * 1.01, 2) if 'BUY' in signal else round(entry_price * 0.99, 2),
-            'take_profit_2': round(entry_price * 1.02, 2) if 'BUY' in signal else round(entry_price * 0.98, 2),
-            'take_profit_3': round(entry_price * 1.03, 2) if 'BUY' in signal else round(entry_price * 0.97, 2)
+            'price': float(round(entry_price, 2)),
+            'stop_loss': float(round(entry_price * 0.995, 2)) if 'BUY' in signal else float(round(entry_price * 1.005, 2)),
+            'take_profit_1': float(round(entry_price * 1.01, 2)) if 'BUY' in signal else float(round(entry_price * 0.99, 2)),
+            'take_profit_2': float(round(entry_price * 1.02, 2)) if 'BUY' in signal else float(round(entry_price * 0.98, 2)),
+            'take_profit_3': float(round(entry_price * 1.03, 2)) if 'BUY' in signal else float(round(entry_price * 0.97, 2))
         }
         
-        return jsonify({
+        result = {
             'success': True,
             'symbol': symbol,
             'timestamp': str(datetime.now()),
-            'current_price': entry_price,
+            'current_price': float(round(entry_price, 2)),
             'mtf_analysis': mtf_analysis,
             'confluence': confluence,
             'backtest': backtest,
-            'final_score': final_score,
+            'final_score': float(round(final_score, 2)),
             'signal': signal,
             'entry': entry,
             'risk_reward': '1:3',
             'confidence': 'HIGH' if final_score >= 70 else 'MEDIUM' if final_score >= 40 else 'LOW',
             'data_sources': list(set([tf_data.get('source', 'unknown') for tf_data in mtf_data.values()]))
-        })
+        }
+        
+        return convert_numpy(jsonify(result))
         
     except Exception as e:
-        return jsonify({
+        return convert_numpy(jsonify({
             'success': False,
             'error': str(e)
-        })
+        }))
 
 @app.route('/analyze/symbol/<symbol>', methods=['GET'])
 def analyze_symbol(symbol):
@@ -957,13 +1024,13 @@ def analyze_symbol(symbol):
     try:
         data = get_mtf_data(symbol.upper())
         analysis = analyze_all_patterns(data.get('1h', {}))
-        return jsonify({
+        return convert_numpy(jsonify({
             'success': True,
             'symbol': symbol.upper(),
             'analysis': analysis
-        })
+        }))
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return convert_numpy(jsonify({'success': False, 'error': str(e)}))
 
 @app.route('/backtest', methods=['POST'])
 def run_backtest():
@@ -977,7 +1044,7 @@ def run_backtest():
         h1_data = hist_data.get('1h', {})
         
         if not h1_data:
-            return jsonify({'success': False, 'error': 'No data for backtest'})
+            return convert_numpy(jsonify({'success': False, 'error': 'No data for backtest'}))
         
         results = backtest_strategy(
             h1_data['high'], h1_data['low'],
@@ -985,19 +1052,19 @@ def run_backtest():
             days
         )
         
-        return jsonify({
+        return convert_numpy(jsonify({
             'success': True,
             'symbol': symbol,
             'days': days,
             'results': results
-        })
+        }))
         
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return convert_numpy(jsonify({'success': False, 'error': str(e)}))
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({
+    return convert_numpy(jsonify({
         'status': 'healthy',
         'timestamp': str(datetime.now()),
         'data_sources': {
@@ -1005,7 +1072,7 @@ def health():
             'twelvedata': 'configured' if TWELVE_DATA_KEY != "YOUR_TWELVE_DATA_API_KEY" else 'optional',
             'fcsapi': 'configured' if FCS_API_KEY != "YOUR_FCS_API_KEY" else 'optional'
         }
-    })
+    }))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
