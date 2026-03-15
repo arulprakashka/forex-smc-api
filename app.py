@@ -14,8 +14,8 @@ CORS(app)
 # ============================================
 # YOUR API KEYS - Replace with your actual keys
 # ============================================
-TWELVE_DATA_KEY = "YOUR_TWELVE_DATA_API_KEY"  # Get from twelvedata.com
-FCS_API_KEY = "YOUR_FCS_API_KEY"              # Get from fcsapi.com
+TWELVE_DATA_KEY = "e4987fc0c8f0461db5877035bc089d64"  # Get from twelvedata.com
+FCS_API_KEY = "wAWpiqowXld2Bv5bl0jD4kw"              # Get from fcsapi.com
 
 # ============================================
 # DATA FETCHING FUNCTIONS
