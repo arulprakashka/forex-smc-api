@@ -79,7 +79,7 @@ def convert_numpy(obj):
 # YAHOO FINANCE DATA FETCHING (PRIMARY)
 # ============================================
 
-def fetch_from_yahoo(symbol="GC=F", interval="1h", days=30):
+def fetch_from_yahoo(symbol="XAU/USD", interval="1h", days=30):
     """Primary data source - Yahoo Finance (FREE, UNLIMITED)"""
     
     period_map = {
@@ -196,7 +196,7 @@ def get_mtf_data(symbol="XAU/USD"):
     
     # Map symbol to Yahoo format
     if symbol == "XAU/USD":
-        yahoo_symbol = "GC=F"
+        yahoo_symbol = "XAUUSD=X"
     elif symbol.endswith("=X"):
         yahoo_symbol = symbol
     else:
@@ -215,7 +215,7 @@ def get_mtf_data(symbol="XAU/USD"):
         data = fetch_from_yahoo(yahoo_symbol, tf)
         
         # If Yahoo fails, try Twelve Data
-        if not data and TWELVE_DATA_KEY != "YOUR_TWELVE_DATA_API_KEY":
+        if not data and TWELVE_DATA_KEY != "e4987fc0c8f0461db5877035bc089d64":
             data = fetch_from_twelvedata(symbol, tf)
         
         # If both fail, generate simulated data
