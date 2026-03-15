@@ -197,6 +197,8 @@ def get_mtf_data(symbol="XAU/USD"):
     # Map symbol to Yahoo format
     if symbol == "XAU/USD":
         yahoo_symbol = "XAUUSD=X"
+    elif symbol == "BTC/USD":
+        yahoo_symbol = "BTC-USD"
     elif symbol.endswith("=X"):
         yahoo_symbol = symbol
     else:
