@@ -963,6 +963,7 @@ def analyze_all_patterns(data_dict):
         'internal_liquidity_cascade': detect_internal_liquidity_cascade(highs, lows, prices),
         'order_flow_trap': detect_order_flow_trap(highs, lows, prices, volumes),
         'sweep_fvg_alignment': detect_sweep_fvg(highs, lows, prices, volumes),
+        'footprint': detect_footprint(highs, lows, prices, volumes),
         'last_price': round(prices[-1], 2),
         'timestamp': str(datetime.now())
     }
