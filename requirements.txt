@@ -6,3 +6,9 @@ requests
 gunicorn
 yfinance
 scipy
+# Add these for search engine
+beautifulsoup4
+scrapy
+sqlalchemy
+psycopg2-binary
+flask-sqlalchemy
