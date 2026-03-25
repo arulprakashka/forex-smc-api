@@ -1054,7 +1054,7 @@ def backtest_strategy(high, low, close, volume, days=30):
 
 @app.route('/', methods=['GET'])
 def home():
-    return convert_numpy(jsonify({
+    return jsonify(convert_numpy({
         'status': 'FOREX SMC/ICT PRO API',
         'version': '5.0',
         'features': [
@@ -1121,18 +1121,18 @@ def analyze_pro():
             'confidence': 'HIGH' if final_score >= 70 else 'MEDIUM' if final_score >= 40 else 'LOW',
             'data_sources': list(set([tf_data.get('source', 'unknown') for tf_data in mtf_data.values()]))
         }
-        return convert_numpy(jsonify(result))
+        return jsonify(convert_numpy(result))
     except Exception as e:
-        return convert_numpy(jsonify({'success': False, 'error': str(e)}))
+        return jsonify(convert_numpy({'success': False, 'error': str(e)}))
 
 @app.route('/analyze/symbol/<symbol>', methods=['GET'])
 def analyze_symbol(symbol):
     try:
         data = get_mtf_data(symbol.upper())
         analysis = analyze_all_patterns(data.get('1h', {}))
-        return convert_numpy(jsonify({'success': True, 'symbol': symbol.upper(), 'analysis': analysis}))
+        return jsonify(convert_numpy({'success': True, 'symbol': symbol.upper(), 'analysis': analysis}))
     except Exception as e:
-        return convert_numpy(jsonify({'success': False, 'error': str(e)}))
+        return jsonify(convert_numpy({'success': False, 'error': str(e)}))
 
 @app.route('/backtest', methods=['POST'])
 def run_backtest():
