@@ -5,3 +5,5 @@ pandas
 requests
 gunicorn
 yfinance
+scikit-learn
+joblib
